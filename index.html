@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administrador Viaje Playa</title>
+    <!-- Tailwind CSS para el diseño -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos Phosphor -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        /* Animaciones suaves */
+        .transition-all { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 300ms; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-cyan-50 font-sans text-slate-800 min-h-screen pb-20">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-cyan-600 to-blue-600 text-white p-6 shadow-lg sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+                    <i class="ph-fill ph-umbrella text-3xl"></i>
+                    Viaje a la Playa 
+                </h1>
+                <p class="text-cyan-100 text-sm sm:text-base">Administrador de Gastos</p>
+            </div>
+            <div class="text-right bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm border border-white/20">
+                <div class="text-xs text-cyan-100">Costo Total del Viaje</div>
+                <div class="text-2xl font-bold" id="header-total-esperado">$0</div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 space-y-8 mt-4">
+        
+        <!-- SECCIÓN 1: METAS DEL GRUPO -->
+        <div>
+            <h2 class="text-lg font-bold text-slate-700 flex items-center gap-2 mb-4">
+                <i class="ph-fill ph-calendar text-cyan-600 text-xl"></i>
+                Progreso de Metas
+            </h2>
+            <div id="metas-container" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <!-- Se llena con JS -->
+            </div>
+        </div>
+
+        <!-- SECCIÓN 2: VIAJEROS -->
+        <div>
+            <h2 class="text-lg font-bold text-slate-700 flex items-center gap-2 mb-4">
+                <i class="ph-fill ph-users text-cyan-600 text-xl"></i>
+                Viajeros
+            </h2>
+            <div id="viajeros-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Se llena con JS -->
+            </div>
+        </div>
+
+        <div class="text-center mt-10 text-slate-400 text-sm">
+            <p>Los datos se guardan automáticamente en este navegador.</p>
+            <button onclick="resetData()" class="mt-2 text-red-300 hover:text-red-500 underline text-xs">Borrar todo y reiniciar</button>
+        </div>
+    </main>
+
+    <!-- Templates para uso de JS -->
+    <script>
+        // --- CONFIGURACIÓN ---
+        const PLAN_PAGOS = [
+            { id: 1, concepto: 'Anticipo', fecha: 'Inmediato', monto: 1300 },
+            { id: 2, concepto: '1er Pago', fecha: '15 Enero', monto: 1250 },
+            { id: 3, concepto: '2do Pago', fecha: '15 Febrero', monto: 1250 },
+            { id: 4, concepto: '3er Pago', fecha: '15 Marzo', monto: 1250 },
+            { id: 5, concepto: 'Pago Final', fecha: '15 Abril', monto: 1435 },
+        ];
+
+        const TOTAL_POR_PERSONA = PLAN_PAGOS.reduce((acc, item) => acc + item.monto, 0);
+        
+        const HITOS_ACUMULADOS = PLAN_PAGOS.map((pago, index) => {
+            const acumuladoAnterior = PLAN_PAGOS.slice(0, index).reduce((acc, p) => acc + p.monto, 0);
+            return { ...pago, metaAcumulada: acumuladoAnterior + pago.monto };
+        });
+
+        // --- ESTADO ---
+        let personas = [];
+        let uiState = {
+            editingNameId: null,
+            addingPaymentId: null,
+            historyOpenIds: [], // Array de IDs
+            newPayment: { monto: '', nota: '', fecha: new Date().toISOString().split('T')[0] }
+        };
+
+        // --- INICIALIZACIÓN ---
+        function init() {
+            const saved = localStorage.getItem('beachTripDataV2_HTML');
+            if (saved) {
+                personas = JSON.parse(saved);
+            } else {
+                // Datos iniciales
+                personas = Array.from({ length: 6 }, (_, i) => ({
+                    id: i + 1,
+                    nombre: `Viajero ${i + 1}`,
+                    pagos: []
+                }));
+            }
+            render();
+        }
+
+        function saveData() {
+            localStorage.setItem('beachTripDataV2_HTML', JSON.stringify(personas));
+            render();
+        }
+
+        function resetData() {
+            if(confirm("¿Estás seguro de borrar todos los datos?")) {
+                localStorage.removeItem('beachTripDataV2_HTML');
+                location.reload();
+            }
+        }
+
+        // --- LÓGICA DE NEGOCIO ---
+        function getPagadoPersona(persona) {
+            return persona.pagos.reduce((sum, pago) => sum + pago.monto, 0);
+        }
+
+        function getEstadoPago(pagado) {
+            const siguienteHito = HITOS_ACUMULADOS.find(h => pagado < h.metaAcumulada);
+            if (!siguienteHito) {
+                return { status: 'completado', mensaje: '¡Todo pagado!', faltante: 0, color: 'text-green-600', bgColor: 'bg-green-100', borderColor: 'border-green-300', icon: 'ph-check-circle' };
+            }
+            return {
+                status: 'pendiente',
+                mensaje: `Siguiente: ${siguienteHito.concepto}`,
+                detalle: `(${siguienteHito.fecha})`,
+                faltante: siguienteHito.metaAcumulada - pagado,
+                color: 'text-amber-600',
+                bgColor: 'bg-amber-50',
+                borderColor: 'border-amber-200',
+                icon: 'ph-warning-circle'
+            };
+        }
+
+        // --- ACCIONES UI ---
+        function toggleEditName(id) {
+            uiState.editingNameId = uiState.editingNameId === id ? null : id;
+            render();
+        }
+
+        function saveName(id, newName) {
+            const p = personas.find(p => p.id === id);
+            if(p) p.nombre = newName;
+            uiState.editingNameId = null;
+            saveData();
+        }
+
+        function toggleAddPayment(id) {
+            if (uiState.addingPaymentId === id) {
+                uiState.addingPaymentId = null;
+            } else {
+                uiState.addingPaymentId = id;
+                uiState.newPayment = { monto: '', nota: '', fecha: new Date().toISOString().split('T')[0] };
+            }
+            render();
+        }
+
+        function toggleHistory(id) {
+            if (uiState.historyOpenIds.includes(id)) {
+                uiState.historyOpenIds = uiState.historyOpenIds.filter(x => x !== id);
+            } else {
+                uiState.historyOpenIds.push(id);
+            }
+            render();
+        }
+
+        function submitPayment(id) {
+            const monto = parseFloat(document.getElementById(`input-monto-${id}`).value);
+            const fecha = document.getElementById(`input-fecha-${id}`).value;
+            const nota = document.getElementById(`input-nota-${id}`).value;
+
+            if (!monto || isNaN(monto)) return alert("Ingresa un monto válido");
+
+            const p = personas.find(p => p.id === id);
+            p.pagos.push({
+                id: Date.now(),
+                monto, fecha, nota: nota || 'Abono'
+            });
+
+            // Abrir historial para ver el pago recién hecho
+            if(!uiState.historyOpenIds.includes(id)) uiState.historyOpenIds.push(id);
+            
+            uiState.addingPaymentId = null; // Cerrar form
+            saveData();
+        }
+
+        function deletePayment(personaId, pagoId) {
+            if(!confirm("¿Borrar este abono?")) return;
+            const p = personas.find(p => p.id === personaId);
+            p.pagos = p.pagos.filter(x => x.id !== pagoId);
+            saveData();
+        }
+
+        // --- RENDERIZADO ---
+        function render() {
+            const totalRecaudadoGlobal = personas.reduce((acc, p) => acc + getPagadoPersona(p), 0);
+            const totalEsperadoGlobal = TOTAL_POR_PERSONA * 6;
+
+            // 1. Header
+            document.getElementById('header-total-esperado').innerText = `$${totalEsperadoGlobal.toLocaleString()}`;
+
+            // 2. Metas (Cards)
+            const metasContainer = document.getElementById('metas-container');
+            let metasHTML = '';
+
+            // Card Global
+            const porcentajeGlobal = Math.min((totalRecaudadoGlobal / totalEsperadoGlobal) * 100, 100);
+            metasHTML += `
+                <div class="bg-white rounded-xl shadow border border-indigo-100 p-3 flex flex-col justify-between relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 p-2 opacity-10">
+                        <i class="ph-fill ph-trophy text-4xl text-indigo-600"></i>
+                    </div>
+                    <div class="mb-2">
+                        <span class="text-xs font-bold uppercase text-indigo-500 tracking-wider">Meta Total</span>
+                        <div class="text-lg font-bold text-slate-800 mt-1">$${totalRecaudadoGlobal.toLocaleString()}</div>
+                        <div class="text-xs text-slate-400">de $${totalEsperadoGlobal.toLocaleString()}</div>
+                    </div>
+                    <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
+                        <div class="h-full bg-indigo-500 rounded-full transition-all" style="width: ${porcentajeGlobal}%"></div>
+                    </div>
+                </div>
+            `;
+
+            // Cards Hitos
+            HITOS_ACUMULADOS.forEach((hito, idx) => {
+                const metaGrupal = hito.monto * 6;
+                const metaAcumuladaAnt = idx === 0 ? 0 : HITOS_ACUMULADOS[idx-1].metaAcumulada * 6;
+                const dineroDisponible = Math.max(0, totalRecaudadoGlobal - metaAcumuladaAnt);
+                const llenado = Math.min(metaGrupal, dineroDisponible);
+                const completado = llenado >= metaGrupal;
+                const porcentaje = (llenado / metaGrupal) * 100;
+                
+                const colorClass = completado ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-100';
+                const textClass = completado ? 'text-emerald-700' : 'text-slate-700';
+                const barColor = completado ? 'bg-emerald-500' : 'bg-amber-400';
+
+                metasHTML += `
+                    <div class="rounded-xl shadow border p-3 flex flex-col justify-between transition-all ${colorClass}">
+                        <div>
+                            <div class="flex justify-between items-start mb-1">
+                                <span class="text-xs font-bold uppercase tracking-wider ${completado ? 'text-emerald-600' : 'text-slate-500'}">${hito.concepto}</span>
+                                ${completado ? '<i class="ph-fill ph-check-circle text-emerald-500"></i>' : ''}
+                            </div>
+                            <div class="text-xs text-slate-400 mb-2">${hito.fecha}</div>
+                            <div class="font-bold text-sm ${textClass}">
+                                $${llenado.toLocaleString()}
+                                <span class="text-slate-400 text-xs font-normal ml-1">/ $${metaGrupal.toLocaleString()}</span>
+                            </div>
+                        </div>
+                        <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden mt-2">
+                            <div class="h-full transition-all ${barColor}" style="width: ${porcentaje}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+            metasContainer.innerHTML = metasHTML;
+
+            // 3. Viajeros
+            const viajerosContainer = document.getElementById('viajeros-container');
+            let viajerosHTML = '';
+
+            personas.forEach(p => {
+                const pagado = getPagadoPersona(p);
+                const porcentaje = Math.min((pagado / TOTAL_POR_PERSONA) * 100, 100);
+                const estado = getEstadoPago(pagado);
+                const isEditing = uiState.editingNameId === p.id;
+                const isAdding = uiState.addingPaymentId === p.id;
+                const showHistory = uiState.historyOpenIds.includes(p.id);
+
+                viajerosHTML += `
+                    <div class="bg-white rounded-xl shadow-md border border-slate-100 flex flex-col transition hover:shadow-lg h-fit fade-in">
+                        <!-- Header Card -->
+                        <div class="p-5 border-b border-slate-50">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="bg-gradient-to-br from-cyan-400 to-blue-500 p-2.5 rounded-full text-white shadow-sm">
+                                        <i class="ph-fill ph-user text-xl"></i>
+                                    </div>
+                                    ${isEditing 
+                                        ? `<div class="flex gap-1">
+                                             <input type="text" id="name-input-${p.id}" value="${p.nombre}" class="border border-cyan-300 rounded px-2 py-1 w-32 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" onkeydown="if(event.key==='Enter') saveName(${p.id}, this.value)">
+                                             <button onclick="saveName(${p.id}, document.getElementById('name-input-${p.id}').value)" class="text-green-600 bg-green-50 p-1 rounded hover:bg-green-100"><i class="ph-bold ph-floppy-disk"></i></button>
+                                           </div>`
+                                        : `<h3 class="font-bold text-lg text-slate-800 flex items-center gap-2 cursor-pointer hover:text-cyan-600" onclick="toggleEditName(${p.id})">
+                                             ${p.nombre} <i class="ph-fill ph-pencil-simple text-slate-300 text-sm"></i>
+                                           </h3>`
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <div class="flex justify-between items-end mb-1">
+                                    <span class="text-sm text-slate-500">Total Pagado</span>
+                                    <span class="text-2xl font-bold text-slate-800">$${pagado.toLocaleString()}</span>
+                                </div>
+                                <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                    <div class="h-full transition-all ${porcentaje >= 100 ? 'bg-green-500' : 'bg-cyan-500'}" style="width: ${porcentaje}%"></div>
+                                </div>
+                                <div class="mt-3 text-xs p-2 rounded border flex items-start gap-2 ${estado.bgColor} ${estado.color} ${estado.borderColor}">
+                                    <i class="ph-fill ${estado.icon} text-lg shrink-0"></i>
+                                    <div>
+                                        <span class="font-bold block">${estado.mensaje} ${estado.detalle || ''}</span>
+                                        ${estado.status !== 'completado' ? `<span>Faltan: $${estado.faltante.toLocaleString()}</span>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex gap-2">
+                                <button onclick="toggleAddPayment(${p.id})" class="flex-1 py-2 px-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${isAdding ? 'bg-slate-800 text-white' : 'bg-cyan-600 text-white hover:bg-cyan-700 shadow-sm'}">
+                                    <i class="ph-bold ${isAdding ? 'ph-x' : 'ph-plus'}"></i>
+                                    ${isAdding ? 'Cancelar' : 'Registrar Abono'}
+                                </button>
+                                <button onclick="toggleHistory(${p.id})" class="py-2 px-3 rounded-lg border transition-colors ${showHistory ? 'bg-slate-100 border-slate-300 text-slate-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}" title="Ver Historial">
+                                    <i class="ph-bold ph-clock-counter-clockwise text-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Formulario Abono -->
+                        ${isAdding ? `
+                        <div class="bg-slate-50 p-4 border-t border-slate-100 fade-in">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Nuevo Abono</h4>
+                            <div class="space-y-3">
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="text-xs text-slate-500 block mb-1">Monto ($)</label>
+                                        <input type="number" id="input-monto-${p.id}" class="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="0.00" autofocus>
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-slate-500 block mb-1">Fecha</label>
+                                        <input type="date" id="input-fecha-${p.id}" value="${uiState.newPayment.fecha}" class="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-slate-500 block mb-1">Nota</label>
+                                    <input type="text" id="input-nota-${p.id}" class="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Ej. Transferencia...">
+                                </div>
+                                <button onclick="submitPayment(${p.id})" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded-lg text-sm shadow-sm transition-colors">Guardar Abono</button>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Historial -->
+                        ${showHistory ? `
+                        <div class="border-t border-slate-100 bg-slate-50/50 max-h-60 overflow-y-auto fade-in">
+                            ${p.pagos.length === 0 
+                                ? '<p class="text-center text-slate-400 text-sm py-4 italic">No hay pagos registrados</p>' 
+                                : `<table class="w-full text-sm text-left">
+                                    <thead class="text-xs text-slate-500 uppercase bg-slate-100 sticky top-0">
+                                        <tr>
+                                            <th class="px-3 py-2 font-medium">Fecha</th>
+                                            <th class="px-3 py-2 font-medium">Nota</th>
+                                            <th class="px-3 py-2 font-medium text-right">Monto</th>
+                                            <th class="px-2 py-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        ${p.pagos.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map(pago => `
+                                            <tr class="bg-white hover:bg-slate-50 group">
+                                                <td class="px-3 py-2 text-slate-600 whitespace-nowrap text-xs">${pago.fecha}</td>
+                                                <td class="px-3 py-2 text-slate-600 truncate max-w-[80px] text-xs">${pago.nota}</td>
+                                                <td class="px-3 py-2 font-mono text-right font-medium text-slate-700 text-xs">$${pago.monto.toLocaleString()}</td>
+                                                <td class="px-2 py-2 text-right">
+                                                    <button onclick="deletePayment(${p.id}, ${pago.id})" class="text-red-300 hover:text-red-500"><i class="ph-bold ph-trash"></i></button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                   </table>`
+                            }
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            viajerosContainer.innerHTML = viajerosHTML;
+        }
+
+        // Arrancar
+        init();
+    </script>
+</body>
+</html>
